@@ -3,7 +3,8 @@ package AnyEvent::HTTP::Socks;
 use strict;
 use Socket;
 use IO::Socket::Socks;
-use AnyEvent::DNS;
+use AnyEvent::Socket;
+use Errno;
 use Carp;
 use base 'Exporter';
 require AnyEvent::HTTP;
@@ -24,68 +25,113 @@ use constant {
 
 my $socks_regex = qr!^socks(4|4a|5)://(?:([^:]+):([^@]*)@)?([^:]+):(\d+)$!;
 
-sub http_get {
+sub http_get($@) {
 	my ($url, $cb) = (shift, pop);
 	my %opts = @_;
 	
 	my $socks = delete $opts{socks};
-	if ($socks and my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
-		$opts{tcp_connect} = sub{
-			_socks_connect($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
-		};
+	if ($socks) {
+		if (my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
+			$opts{tcp_connect} = sub {
+				_socks_prepare_connection($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
+			};
+		}
+		else {
+			croak 'unsupported socks address specified';
+		}
 	}
 	
 	AnyEvent::HTTP::http_get($url, %opts, $cb);
 }
 
-sub http_head {
+sub http_head($@) {
 	my ($url, $cb) = (shift, pop);
 	my %opts = @_;
 	
 	my $socks = delete $opts{socks};
 	if ($socks and my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
-		$opts{tcp_connect} = sub{
-			_socks_connect($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
+		$opts{tcp_connect} = sub {
+			_socks_prepare_connection($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
 		};
 	}
 	
 	AnyEvent::HTTP::http_head($url, %opts, $cb);
 }
 
-sub http_post {
+sub http_post($$@) {
 	my ($url, $body, $cb) = (shift, shift, pop);
 	my %opts = @_;
 	
 	my $socks = delete $opts{socks};
 	if ($socks and my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
-		$opts{tcp_connect} = sub{
-			_socks_connect($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
+		$opts{tcp_connect} = sub {
+			_socks_prepare_connection($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
 		};
 	}
 	
 	AnyEvent::HTTP::http_post($url, $body, %opts, $cb);
 }
 
-sub http_request {
+sub http_request($$@) {
 	my ($method, $url, $cb) = (shift, shift, pop);
 	my %opts = @_;
 	
 	my $socks = delete $opts{socks};
 	if ($socks and my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
-		$opts{tcp_connect} = sub{
-			_socks_connect($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
+		$opts{tcp_connect} = sub {
+			_socks_prepare_connection($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
 		};
 	}
 	
 	AnyEvent::HTTP::http_request($method, $url, %opts, $cb);
 }
 
-sub _socks_connect {
+sub _socks_prepare_connection {
 	my ($s_ver, $s_login, $s_pass, $s_host, $s_port, $c_host, $c_port, $c_cb, $p_cb) = @_;
 	
 	socket(my $sock, PF_INET, SOCK_STREAM, getprotobyname('tcp'))
 		or return $c_cb->();
-	$p_cb->($sock);
+	my $timeout = $p_cb->($sock);
+	
+	my ($watcher, $timer);
+	my $cv = AE::cv {
+		_socks_connect(\$watcher, \$timer, $sock, $s_ver, $s_login, $s_pass, $s_host, $s_port, $c_host, $c_port, $c_cb);
+	};
+	
+	$cv->begin;
+	
+	$cv->begin;
+	inet_aton $s_host, sub {
+		$s_host = format_address shift;
+		$cv->end if $cv;
+	};
+	#                                                                 '4a' == 4 -> true
+	if (($s_ver == 5 &&  $IO::Socket::Socks::SOCKS5_RESOLVE == 0) || ($s_ver eq '4' && $IO::Socket::Socks::SOCKS4_RESOLVE == 0)) {
+		# resolving on client side enabled
+		$cv->begin;
+		inet_aton $c_host, sub {
+			$c_host = format_address shift;
+			$cv->end if $cv;
+		}
+	}
+	
+	$cv->end;
+	
+	$timer = AnyEvent->timer(
+		after => $timeout,
+		cb => sub {
+			undef $watcher;
+			undef $cv;
+			$! = Errno::ETIMEDOUT;
+			$c_cb->();
+		}
+	);
+	
+	return $sock;
+}
+
+sub _socks_connect {
+	my ($watcher, $timer, $sock, $s_ver, $s_login, $s_pass, $s_host, $s_port, $c_host, $c_port, $c_cb) = @_;
 	
 	my @specopts;
 	if ($s_ver eq '4a') {
@@ -111,46 +157,47 @@ sub _socks_connect {
 		@specopts
 	) or return $c_cb->();
 	
-	my $wr; $wr = AnyEvent->io(
+	$$watcher = AnyEvent->io(
 		fh => $sock,
 		poll => 'w',
-		cb => sub { _socks_handshake($wr, WRITE_WATCHER, $sock, $c_cb) }
+		cb => sub { _socks_handshake($watcher, $timer, WRITE_WATCHER, $sock, $c_cb) }
 	);
-	
-	return $sock;
 }
 
 sub _socks_handshake {
-	my ($w_type, $sock, $c_cb) = @_[1,2,3];
+	my ($watcher, $timer, $w_type, $sock, $c_cb) = @_;
 	
 	if ($sock->ready) {
-		undef $_[0]; # remove watcher
+		undef $$watcher;
+		undef $$timer;
 		return $c_cb->($sock);
 	}
 	
 	if ($SOCKS_ERROR == SOCKS_WANT_WRITE) {
 		if ($w_type != WRITE_WATCHER) {
-			undef $_[0];
-			my $wr; $wr = AnyEvent->io(
+			undef $$watcher;
+			$$watcher = AnyEvent->io(
 				fh => $sock,
 				poll => 'w',
-				cb => sub { _socks_handshake($wr, WRITE_WATCHER, $sock, $c_cb) }
+				cb => sub { _socks_handshake($watcher, $timer, WRITE_WATCHER, $sock, $c_cb) }
 			);
 		}
 	}
 	elsif ($SOCKS_ERROR == SOCKS_WANT_READ) {
 		if ($w_type != READ_WATCHER) {
-			undef $_[0];
-			my $rd; $rd = AnyEvent->io(
+			undef $$watcher;
+			$$watcher = AnyEvent->io(
 				fh => $sock,
 				poll => 'r',
-				cb => sub { _socks_handshake($rd, READ_WATCHER, $sock, $c_cb) }
+				cb => sub { _socks_handshake($watcher, $timer, READ_WATCHER, $sock, $c_cb) }
 			);
 		}
 	}
 	else {
 		# unknown error
-		undef $_[0];
+		$@ = "IO::Socket::Socks: $SOCKS_ERROR";
+		undef $$watcher;
+		undef $$timer;
 		$c_cb->();
 	}
 }
