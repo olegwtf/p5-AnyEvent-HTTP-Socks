@@ -22,37 +22,93 @@ use constant {
 	WRITE_WATCHER => 2,
 };
 
+my $socks_regex = qr!^socks(4|4a|5)://(?:([^:]+):([^@]*)@)?([^:]+):(\d+)$!;
+
 sub http_get {
-	AnyEvent::HTTP::http_get(@_);
+	my ($url, $cb) = (shift, pop);
+	my %opts = @_;
+	
+	my $socks = delete $opts{socks};
+	if ($socks and my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
+		$opts{tcp_connect} = sub{
+			_socks_connect($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
+		};
+	}
+	
+	AnyEvent::HTTP::http_get($url, %opts, $cb);
 }
 
 sub http_head {
-	AnyEvent::HTTP::http_head(@_);
+	my ($url, $cb) = (shift, pop);
+	my %opts = @_;
+	
+	my $socks = delete $opts{socks};
+	if ($socks and my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
+		$opts{tcp_connect} = sub{
+			_socks_connect($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
+		};
+	}
+	
+	AnyEvent::HTTP::http_head($url, %opts, $cb);
 }
 
 sub http_post {
-	AnyEvent::HTTP::http_post(@_);
+	my ($url, $body, $cb) = (shift, shift, pop);
+	my %opts = @_;
+	
+	my $socks = delete $opts{socks};
+	if ($socks and my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
+		$opts{tcp_connect} = sub{
+			_socks_connect($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
+		};
+	}
+	
+	AnyEvent::HTTP::http_post($url, $body, %opts, $cb);
 }
 
 sub http_request {
-	AnyEvent::HTTP::http_request(@_);
+	my ($method, $url, $cb) = (shift, shift, pop);
+	my %opts = @_;
+	
+	my $socks = delete $opts{socks};
+	if ($socks and my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
+		$opts{tcp_connect} = sub{
+			_socks_connect($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
+		};
+	}
+	
+	AnyEvent::HTTP::http_request($method, $url, %opts, $cb);
 }
 
 sub _socks_connect {
-	my ($s_host, $s_port, $s_ver, $c_host, $c_port, $c_cb, $p_cb) = @_;
+	my ($s_ver, $s_login, $s_pass, $s_host, $s_port, $c_host, $c_port, $c_cb, $p_cb) = @_;
 	
 	socket(my $sock, PF_INET, SOCK_STREAM, getprotobyname('tcp'))
 		or return $c_cb->();
 	$p_cb->($sock);
 	
-	$sock = IO::Socket::Socks->new_from_socket(
+	my @specopts;
+	if ($s_ver eq '4a') {
+		$s_ver = 4;
+		push @specopts, SocksResolve => 1;
+	}
+	
+	if (defined $s_login) {
+		push @specopts, Username => $s_login, Password => $s_pass;
+		if ($s_ver == 5) {
+			push @specopts, AuthType => 'userpass';
+		}
+	}
+	
+	my $sock = IO::Socket::Socks->new_from_socket(
 		$sock,
 		Blocking     => 0,
 		ProxyAddr    => $s_host,
 		ProxyPort    => $s_port,
-		SocksVersion => $s_ver,
+		SocksVersion => $s_ver||5,
 		ConnectAddr  => $c_host,
-		ConnectPort  => $c_port
+		ConnectPort  => $c_port,
+		@specopts
 	) or return $c_cb->();
 	
 	my $wr; $wr = AnyEvent->io(
@@ -60,6 +116,8 @@ sub _socks_connect {
 		poll => 'w',
 		cb => sub { _socks_handshake($wr, WRITE_WATCHER, $sock, $c_cb) }
 	);
+	
+	return $sock;
 }
 
 sub _socks_handshake {
