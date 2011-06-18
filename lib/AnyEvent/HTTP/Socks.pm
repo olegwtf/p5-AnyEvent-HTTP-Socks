@@ -23,15 +23,29 @@ use constant {
 	WRITE_WATCHER => 2,
 };
 
-my $socks_regex = qr!^socks(4|4a|5)://(?:([^:]+):([^@]*)@)?([^:]+):(\d+)$!;
-
 sub http_get($@) {
-	my ($url, $cb) = (shift, pop);
+	unshift @_, 'GET';
+	&http_request;
+}
+
+sub http_head($@) {
+	unshift @_, 'HEAD';
+	&http_request;
+}
+
+sub http_post($$@) {
+	my $url = shift;
+	unshift @_, 'POST', $url, 'body';
+	&http_request;
+}
+
+sub http_request($$@) {
+	my ($method, $url, $cb) = (shift, shift, pop);
 	my %opts = @_;
 	
 	my $socks = delete $opts{socks};
 	if ($socks) {
-		if (my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
+		if (my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ m!^socks(4|4a|5)://(?:([^:]+):([^@]*)@)?([^:]+):(\d+)$!) {
 			$opts{tcp_connect} = sub {
 				_socks_prepare_connection($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
 			};
@@ -41,49 +55,7 @@ sub http_get($@) {
 		}
 	}
 	
-	AnyEvent::HTTP::http_get($url, %opts, $cb);
-}
-
-sub http_head($@) {
-	my ($url, $cb) = (shift, pop);
-	my %opts = @_;
-	
-	my $socks = delete $opts{socks};
-	if ($socks and my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
-		$opts{tcp_connect} = sub {
-			_socks_prepare_connection($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
-		};
-	}
-	
-	AnyEvent::HTTP::http_head($url, %opts, $cb);
-}
-
-sub http_post($$@) {
-	my ($url, $body, $cb) = (shift, shift, pop);
-	my %opts = @_;
-	
-	my $socks = delete $opts{socks};
-	if ($socks and my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
-		$opts{tcp_connect} = sub {
-			_socks_prepare_connection($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
-		};
-	}
-	
-	AnyEvent::HTTP::http_post($url, $body, %opts, $cb);
-}
-
-sub http_request($$@) {
-	my ($method, $url, $cb) = (shift, shift, pop);
-	my %opts = @_;
-	
-	my $socks = delete $opts{socks};
-	if ($socks and my ($s_ver, $s_login, $s_pass, $s_host, $s_port) = $socks =~ $socks_regex) {
-		$opts{tcp_connect} = sub {
-			_socks_prepare_connection($s_ver, $s_login, $s_pass, $s_host, $s_port, @_);
-		};
-	}
-	
-	AnyEvent::HTTP::http_request($method, $url, %opts, $cb);
+	AnyEvent::HTTP::http_request( $method, $url, %opts, $cb );
 }
 
 sub _socks_prepare_connection {
