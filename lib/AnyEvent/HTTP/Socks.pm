@@ -1,7 +1,10 @@
 package AnyEvent::HTTP::Socks;
 
 use strict;
+use Socket;
 use IO::Socket::Socks;
+use AnyEvent::DNS;
+use Carp;
 use base 'Exporter';
 require AnyEvent::HTTP;
 
@@ -13,6 +16,11 @@ our @EXPORT = qw(
 );
 
 our $VERSION = '0.01';
+
+use constant {
+	READ_WATCHER  => 1,
+	WRITE_WATCHER => 2,
+};
 
 sub http_get {
 	AnyEvent::HTTP::http_get(@_);
@@ -28,6 +36,65 @@ sub http_post {
 
 sub http_request {
 	AnyEvent::HTTP::http_request(@_);
+}
+
+sub _socks_connect {
+	my ($s_host, $s_port, $s_ver, $c_host, $c_port, $c_cb, $p_cb) = @_;
+	
+	socket(my $sock, PF_INET, SOCK_STREAM, getprotobyname('tcp'))
+		or return $c_cb->();
+	$p_cb->($sock);
+	
+	$sock = IO::Socket::Socks->new_from_socket(
+		$sock,
+		Blocking     => 0,
+		ProxyAddr    => $s_host,
+		ProxyPort    => $s_port,
+		SocksVersion => $s_ver,
+		ConnectAddr  => $c_host,
+		ConnectPort  => $c_port
+	) or return $c_cb->();
+	
+	my $wr; $wr = AnyEvent->io(
+		fh => $sock,
+		poll => 'w',
+		cb => sub { _socks_handshake($wr, WRITE_WATCHER, $sock, $c_cb) }
+	);
+}
+
+sub _socks_handshake {
+	my ($w_type, $sock, $c_cb) = @_[1,2,3];
+	
+	if ($sock->ready) {
+		undef $_[0]; # remove watcher
+		return $c_cb->($sock);
+	}
+	
+	if ($SOCKS_ERROR == SOCKS_WANT_WRITE) {
+		if ($w_type != WRITE_WATCHER) {
+			undef $_[0];
+			my $wr; $wr = AnyEvent->io(
+				fh => $sock,
+				poll => 'w',
+				cb => sub { _socks_handshake($wr, WRITE_WATCHER, $sock, $c_cb) }
+			);
+		}
+	}
+	elsif ($SOCKS_ERROR == SOCKS_WANT_READ) {
+		if ($w_type != READ_WATCHER) {
+			undef $_[0];
+			my $rd; $rd = AnyEvent->io(
+				fh => $sock,
+				poll => 'r',
+				cb => sub { _socks_handshake($rd, READ_WATCHER, $sock, $c_cb) }
+			);
+		}
+	}
+	else {
+		# unknown error
+		undef $_[0];
+		$c_cb->();
+	}
 }
 
 1;
