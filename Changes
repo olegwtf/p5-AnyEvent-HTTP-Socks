@@ -1,6 +1,4 @@
 Revision history for Perl extension AnyEvent::HTTP::Socks.
 
-0.01  Sat Jun 18 01:32:07 2011
-	- original version; created by h2xs 1.23 with options
-		-X -n AnyEvent::HTTP::Socks
-
+0.01  Sat Jun 23 01:32:07 2011
+	- original version

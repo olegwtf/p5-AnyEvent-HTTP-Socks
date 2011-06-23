@@ -58,6 +58,11 @@ sub http_request($$@) {
 	AnyEvent::HTTP::http_request( $method, $url, %opts, $cb );
 }
 
+sub inject {
+	my ($class, $where) = @_;
+	$class->export($where, @EXPORT);
+}
+
 sub _socks_prepare_connection {
 	my ($s_ver, $s_login, $s_pass, $s_host, $s_port, $c_host, $c_port, $c_cb, $p_cb) = @_;
 	
@@ -123,7 +128,7 @@ sub _socks_connect {
 		Blocking     => 0,
 		ProxyAddr    => $s_host,
 		ProxyPort    => $s_port,
-		SocksVersion => $s_ver||5,
+		SocksVersion => $s_ver,
 		ConnectAddr  => $c_host,
 		ConnectPort  => $c_port,
 		@specopts
@@ -176,53 +181,79 @@ sub _socks_handshake {
 
 1;
 __END__
-# Below is stub documentation for your module. You'd better edit it!
 
 =head1 NAME
 
-AnyEvent::HTTP::Socks - Perl extension for blah blah blah
+AnyEvent::HTTP::Socks - Adds socks support for AnyEvent::HTTP 
 
 =head1 SYNOPSIS
 
+  use AnyEvent::HTTP;
   use AnyEvent::HTTP::Socks;
-  blah blah blah
+  
+  http_get 'http://www.google.com/', socks => 'socks5://localhost:1080', sub {
+      print $_[0];
+  };
 
 =head1 DESCRIPTION
 
-Stub documentation for AnyEvent::HTTP::Socks, created by h2xs. It looks like the
-author of the extension was negligent enough to leave the stub
-unedited.
+This module adds new `socks' option to all http_* functions exported by AnyEvent::HTTP.
+So you can specify socks proxy for HTTP requests. This module uses IO::Socket::Socks as socks client,
+so any global variables like $IO::Socket::Socks::SOCKS_DEBUG can be used to change behavior.
 
-Blah blah blah.
+Socks string structure:
 
-=head2 EXPORT
+  scheme://login:password@host:port
+  ^^^^^^   ^^^^^^^^^^^^^^ ^^^^ ^^^^
+    1             2         3    4
 
-None by default.
+1 - scheme can be one of the: socks4, socks4a, socks5
 
+2 - "login:password@" part can be ommited if no authorization for socks proxy needed. For socks4
+proxy "password" should be ommited, because this proxy type doesn't support login/password authentication,
+login will be interpreted as userid.
 
+3 - ip or hostname of the proxy server
+
+4 - port of the proxy server
+
+=head1 METHODS
+
+=head2 AnyEvent::HTTP::Socks->inject('Package::Name')
+
+Add socks support to some package that uses AnyEvent::HTTP.
+
+Example:
+
+	use AnyEvent::HTTP;
+	use AnyEvent::HTTP::Socks;
+	use AnyEvent::Google::PageRank qw(rank_get);
+	use strict;
+	
+	AnyEvent::HTTP::Socks->inject('AnyEvent::Google::PageRank');
+	
+	rank_get 'http://mail.com', socks => 'socks4://localhost:1080', sub {
+		warn $_[0];
+	};
+
+=head1 NOTICE
+
+You should load AnyEvent::HTTP::Socks after AnyEvent::HTTP, not before. Or simply load only AnyEvent::HTTP::Socks
+and it will load AnyEvent::HTTP automatically.
 
 =head1 SEE ALSO
 
-Mention other useful documentation such as the documentation of
-related modules or operating system documentation (such as man pages
-in UNIX), or any relevant external documentation such as RFCs or
-standards.
-
-If you have a mailing list set up for your module, mention it here.
-
-If you have a web site set up for your module, mention it here.
+L<AnyEvent::HTTP>, L<IO::Socket::Socks>
 
 =head1 AUTHOR
 
-Oleg G, E<lt>oleg@E<gt>
+Oleg G, E<lt>oleg@cpan.orgE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
 Copyright (C) 2011 by Oleg G
 
 This library is free software; you can redistribute it and/or modify
-it under the same terms as Perl itself, either Perl version 5.12.3 or,
-at your option, any later version of Perl 5 you may have available.
-
+it under the same terms as Perl itself
 
 =cut
