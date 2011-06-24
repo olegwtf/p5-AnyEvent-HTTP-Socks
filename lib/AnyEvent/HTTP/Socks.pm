@@ -16,7 +16,7 @@ our @EXPORT = qw(
 	http_request
 );
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 use constant {
 	READ_WATCHER  => 1,
@@ -123,7 +123,7 @@ sub _socks_connect {
 		}
 	}
 	
-	my $sock = IO::Socket::Socks->new_from_socket(
+	$sock = IO::Socket::Socks->new_from_socket(
 		$sock,
 		Blocking     => 0,
 		ProxyAddr    => $s_host,
@@ -198,10 +198,12 @@ AnyEvent::HTTP::Socks - Adds socks support for AnyEvent::HTTP
 =head1 DESCRIPTION
 
 This module adds new `socks' option to all http_* functions exported by AnyEvent::HTTP.
-So you can specify socks proxy for HTTP requests. This module uses IO::Socket::Socks as socks client,
-so any global variables like $IO::Socket::Socks::SOCKS_DEBUG can be used to change behavior.
+So you can specify socks proxy for HTTP requests.
 
-Socks string structure:
+This module uses IO::Socket::Socks as socks library, so any global variables like
+$IO::Socket::Socks::SOCKS_DEBUG can be used to change the behavior.
+
+Socks string structure is:
 
   scheme://login:password@host:port
   ^^^^^^   ^^^^^^^^^^^^^^ ^^^^ ^^^^
@@ -221,7 +223,7 @@ login will be interpreted as userid.
 
 =head2 AnyEvent::HTTP::Socks->inject('Package::Name')
 
-Add socks support to some package that uses AnyEvent::HTTP.
+Add socks support to some package based on AnyEvent::HTTP.
 
 Example:
 

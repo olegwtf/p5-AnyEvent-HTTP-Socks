@@ -3,11 +3,13 @@
 use Test::More;
 use strict;
 use IO::Socket::Socks qw/:constants $SOCKS_ERROR/;
-BEGIN { use_ok('AnyEvent::HTTP::Socks') };
-
-if( $^O eq 'MSWin32' ) {
-	plan skip_all => 'Fork + Windows = Fail';
-}
+BEGIN { 
+	if( $^O eq 'MSWin32' ) {
+		plan skip_all => 'Fork + Windows = Fail';
+	}
+	
+	use_ok('AnyEvent::HTTP::Socks');
+};
 
 my ($h_pid, $h_host, $h_port) = make_http_server();
 my ($s1_pid, $s1_host, $s1_port) = make_socks_server(4, undef, undef, accept => 1, reply => 2);
