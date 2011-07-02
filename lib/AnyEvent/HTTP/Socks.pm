@@ -46,13 +46,13 @@ sub http_request($$@) {
 	my $socks = delete $opts{socks};
 	if ($socks) {
 		my @chain;
-		while (my ($ver, $login, $pass, $host, $port) = $socks =~ m!^socks(4|4a|5)://(?:([^:]+):([^@]*)@)?([^:]+):(\d+)$!g) {
-			push @chain, {ver => $ver, login => $login, pass => $pass, host => $host, port => $port};
+		while ($socks =~ m!socks(4|4a|5)://(?:([^:]+):([^@]*)@)?([^:]+):(\d+)!g) {
+			push @chain, {ver => $1, login => $2, pass => $3, host => $4, port => $5};
 		}
 		
 		if (@chain) {
 			$opts{tcp_connect} = sub {
-				my ($sock, $cv, $watcher, $timer);
+				my ($cv, $watcher, $timer, $sock);
 				_socks_prepare_connection(\$cv, \$watcher, \$timer, $sock, \@chain, @_);
 			};
 		}
@@ -103,11 +103,11 @@ sub _socks_prepare_connection {
 	if (($chain->[0]{ver} == 5 &&  $IO::Socket::Socks::SOCKS5_RESOLVE == 0) ||
 	    ($chain->[0]{ver} eq '4' && $IO::Socket::Socks::SOCKS4_RESOLVE == 0)) {
 		# resolving on the client side enabled
-		my $host = @$chain > 1 ? \$chain->[1]{host} : $c_host;
+		my $host = @$chain > 1 ? \$chain->[1]{host} : \$c_host;
 		$$cv->begin;
 		
-		inet_aton $host, sub {
-			$host = format_address shift;
+		inet_aton $$host, sub {
+			$$host = format_address shift;
 			$$cv->end if $$cv;
 		}
 	}
@@ -128,9 +128,9 @@ sub _socks_connect {
 	}
 	
 	if (defined $link->{login}) {
-		push @specopts, Username => $link->{login}, Password => $link->{pass};
+		push @specopts, Username => $link->{login};
 		if ($link->{ver} == 5) {
-			push @specopts, AuthType => 'userpass';
+			push @specopts, Password => $link->{pass}, AuthType => 'userpass';
 		}
 	}
 	
@@ -157,10 +157,13 @@ sub _socks_connect {
 		) or return $c_cb->();
 	}
 	
+	my ($poll, $w_type) = ('w', WRITE_WATCHER);
+	   ($poll, $w_type) = ('r', READ_WATCHER) if $SOCKS_ERROR == SOCKS_WANT_READ;
+	
 	$$watcher = AnyEvent->io(
 		fh => $sock,
-		poll => 'w',
-		cb => sub { _socks_handshake($cv, $watcher, WRITE_WATCHER, $timer, $sock, $chain, $c_host, $c_port, $c_cb) }
+		poll => $poll,
+		cb => sub { _socks_handshake($cv, $watcher, $w_type, $timer, $sock, $chain, $c_host, $c_port, $c_cb) }
 	);
 }
 
@@ -169,9 +172,13 @@ sub _socks_handshake {
 	
 	if ($sock->ready) {
 		undef $$watcher;
-		undef $$timer;
 		
-		return @$chain ? _socks_prepare_connection($cv, $watcher, $timer, $sock, $chain, $c_host, $c_port, $c_cb) : $c_cb->($sock);
+		if (@$chain) {
+			return _socks_prepare_connection($cv, $watcher, $timer, $sock, $chain, $c_host, $c_port, $c_cb);
+		}
+		
+		undef $$timer;
+		return $c_cb->($sock);
 	}
 	
 	if ($SOCKS_ERROR == SOCKS_WANT_WRITE) {
@@ -242,6 +249,11 @@ login will be interpreted as userid.
 3 - ip or hostname of the proxy server
 
 4 - port of the proxy server
+
+You can also make connection through a socks chain. Simply specify several socks proxies in the socks string
+and devide them by any non-numeric separator:
+
+  socks4://10.0.0.1:1080->socks5://root:123@10.0.0.2:1080->socks4a://85.224.100.1:9010
 
 =head1 METHODS
 
