@@ -46,7 +46,7 @@ sub http_request($$@) {
 	my $socks = delete $opts{socks};
 	if ($socks) {
 		my @chain;
-		while ($socks =~ m!socks(4|4a|5)://(?:([^:]+):([^@]*)@)?([^:]+):(\d+)!g) {
+		while ($socks =~ m!socks(4|4a|5)://(?:([^\s:]+):([^\s@]*)@)?([^\s:]+):(\d+)!g) {
 			push @chain, {ver => $1, login => $2, pass => $3, host => $4, port => $5};
 		}
 		
@@ -251,9 +251,9 @@ login will be interpreted as userid.
 4 - port of the proxy server
 
 You can also make connection through a socks chain. Simply specify several socks proxies in the socks string
-and devide them by any non-numeric separator:
+and devide them by tab(s) or space(s):
 
-  socks4://10.0.0.1:1080->socks5://root:123@10.0.0.2:1080->socks4a://85.224.100.1:9010
+  "socks4://10.0.0.1:1080  socks5://root:123@10.0.0.2:1080  socks4a://85.224.100.1:9010"
 
 =head1 METHODS
 

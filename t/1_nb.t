@@ -11,10 +11,13 @@ BEGIN {
 	use_ok('AnyEvent::HTTP::Socks');
 };
 
+$AnyEvent::HTTP::MAX_PER_HOST = 10;
+
 my ($h_pid, $h_host, $h_port) = make_http_server();
 my ($s1_pid, $s1_host, $s1_port) = make_socks_server(4, undef, undef, accept => 1, reply => 2);
 my ($s2_pid, $s2_host, $s2_port) = make_socks_server(5, 'root', 'toor', accept => 2, reply => 3);
 my ($s3_pid, $s3_host, $s3_port) = make_socks_server(5, undef, undef, reply => 1);
+my ($s4_pid, $s4_host, $s4_port) = make_socks_server(4, undef, undef, accept => 5);
 
 my $loop = AnyEvent->condvar;
 $loop->begin;
@@ -41,10 +44,34 @@ http_get "http://$h_host:$h_port/unknown", socks => "socks5://$s3_host:$s3_port"
 	$loop->end;
 };
 
+$loop->begin;
+http_get "http://$h_host:$h_port/", timeout => 3, socks => "socks4://$s4_host:$s4_port", sub {
+	is($_[1]->{Status}, 595, 'Timeout');
+	$loop->end;
+};
+
+$loop->begin;
+http_get "http://$h_host:$h_port/", socks => "socks5://$s3_host:$s3_port -> socks4://$s1_host:$s1_port", sub {
+	is($_[0], 'ROOT', 'socks5 -> socks4 chain');
+	$loop->end;
+};
+
+$loop->begin;
+http_get "http://$h_host:$h_port/index", socks => "socks5://$s3_host:$s3_port	socks5://xxx:xxx\@$s2_host:$s2_port", sub {
+	is($_[0], undef, 'socks5 -> socks5[auth] chain with bad password');
+	$loop->end;
+};
+
+$loop->begin;
+http_get "http://$h_host:$h_port/index", socks => "socks5://$s3_host:$s3_port  socks5://root:toor\@$s2_host:$s2_port", sub {
+	is($_[0], 'INDEX', 'socks5 -> socks5[auth] chain with good password');
+	$loop->end;
+};
+
 $loop->end;
 $loop->recv;
 
-kill 15, $_ for ($h_pid, $s1_pid, $s2_pid, $s3_pid);
+kill 15, $_ for ($h_pid, $s1_pid, $s2_pid, $s3_pid, $s4_pid);
 
 done_testing();
 
