@@ -101,7 +101,7 @@ sub _socks_prepare_connection {
 	};
 	
 	if (($chain->[0]{ver} == 5 &&  $IO::Socket::Socks::SOCKS5_RESOLVE == 0) ||
-	    ($chain->[0]{ver} eq '4' && $IO::Socket::Socks::SOCKS4_RESOLVE == 0)) {
+	    ($chain->[0]{ver} eq '4' && $IO::Socket::Socks::SOCKS4_RESOLVE == 0)) { # 4a = 4
 		# resolving on the client side enabled
 		my $host = @$chain > 1 ? \$chain->[1]{host} : \$c_host;
 		$$cv->begin;
@@ -157,8 +157,9 @@ sub _socks_connect {
 		) or return $c_cb->();
 	}
 	
-	my ($poll, $w_type) = ('w', WRITE_WATCHER);
-	   ($poll, $w_type) = ('r', READ_WATCHER) if $SOCKS_ERROR == SOCKS_WANT_READ;
+	my ($poll, $w_type) = $SOCKS_ERROR == SOCKS_WANT_READ ?
+	                                  ('r', READ_WATCHER) :
+	                                  ('w', WRITE_WATCHER);
 	
 	$$watcher = AnyEvent->io(
 		fh => $sock,
