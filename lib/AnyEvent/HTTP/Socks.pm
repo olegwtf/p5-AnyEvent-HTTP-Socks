@@ -53,7 +53,8 @@ sub http_request($$@) {
 		if (@chain) {
 			$opts{tcp_connect} = sub {
 				my ($cv, $watcher, $timer, $sock);
-				_socks_prepare_connection(\$cv, \$watcher, \$timer, $sock, \@chain, @_);
+				my @tmp_chain = @chain; # copy: on redirect @tmp_chain will be already empty
+				_socks_prepare_connection(\$cv, \$watcher, \$timer, $sock, \@tmp_chain, @_);
 			};
 		}
 		else {
@@ -135,6 +136,7 @@ sub _socks_connect {
 	}
 	
 	my ($host, $port) = @$chain ? ($chain->[0]{host}, $chain->[0]{port}) : ($c_host, $c_port);
+	
 	if (ref($sock) eq 'GLOB') {
 		# not connected socket
 		$sock = IO::Socket::Socks->new_from_socket(
