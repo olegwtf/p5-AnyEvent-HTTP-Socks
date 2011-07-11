@@ -1,5 +1,8 @@
 Revision history for Perl extension AnyEvent::HTTP::Socks.
 
+0.03  Mon Jul 11 13:28:33 2011
+    - Chain support added
+
 0.02  Fri Jun 24 11:57:18 2011
     - Excessive demands of perl 5.12 were removed
     - Few typos in the code and documentation were fixed

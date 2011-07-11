@@ -10,5 +10,5 @@ WriteMakefile(
     META_MERGE        => { resources => {repository => 'https://github.com/olegwtf/p5-AnyEvent-HTTP-Socks'} },
     ($] >= 5.005 ?     ## Add these new keywords supported since 5.005
       (ABSTRACT_FROM  => 'lib/AnyEvent/HTTP/Socks.pm', # retrieve abstract from module
-       AUTHOR         => 'Oleg G <oleg@>') : ()),
+       AUTHOR         => 'Oleg G <oleg@cpan.org>') : ()),
 );
