@@ -46,7 +46,7 @@ sub http_request($$@) {
 	my $socks = delete $opts{socks};
 	if ($socks) {
 		my @chain;
-		while ($socks =~ m!socks(4|4a|5)://(?:([^\s:]+):([^\s@]*)@)?([^\s:]+):(\d+)!g) {
+		while ($socks =~ m!socks(4|4a|5)://(?:([^\s:]+):([^\s@]*)@)?(\[[0-9a-f:.]+\]|[^\s:]+):(\d+)!gi) {
 			push @chain, {ver => $1, login => $2, pass => $3, host => $4, port => $5};
 		}
 		
@@ -74,8 +74,14 @@ sub _socks_prepare_connection {
 	my ($cv, $watcher, $timer, $sock, $chain, $c_host, $c_port, $c_cb, $p_cb) = @_;
 	
 	unless ($sock) { # first connection in the chain
-		socket($sock, PF_INET, SOCK_STREAM, getprotobyname('tcp'))
-			or return $c_cb->();
+		# XXX: need also support IPv6 when SOCKS host is a domain name, but this is not so easy
+		socket(
+			$sock,
+			$chain->[0]{host} =~ /^\[.+\]$/ ? PF_INET6 : PF_INET,
+			SOCK_STREAM,
+			getprotobyname('tcp')
+		)
+		or return $c_cb->();
 			
 		my $timeout = $p_cb->($sock);
 		$$timer = AnyEvent->timer(
@@ -87,6 +93,8 @@ sub _socks_prepare_connection {
 				$c_cb->();
 			}
 		);
+		
+		$_->{host} =~ s/^\[// and $_->{host} =~ s/\]$// for @$chain;
 	}
 	
 	$$cv = AE::cv {
@@ -257,6 +265,10 @@ You can also make connection through a socks chain. Simply specify several socks
 and devide them by tab(s) or space(s):
 
   "socks4://10.0.0.1:1080  socks5://root:123@10.0.0.2:1080  socks4a://85.224.100.1:9010"
+
+If you want to specify socks host as IPv6 address you need to use square brackets:
+
+  "socks5://[2a00:1450:400f:805::200e]:1080"
 
 =head1 METHODS
 
