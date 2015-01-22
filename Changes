@@ -1,5 +1,9 @@
 Revision history for Perl extension AnyEvent::HTTP::Socks.
 
+0.05  Fri Jan 23 00:41:37 NOVT 2015
+    - Allow SOCKS host to be specified as IPv6 address
+    - Now requires IO::Socket::Socks 0.66 for IPv6 support
+
 0.04  Mon Aug 29 01:12:27 2011
     - Changed dependency from IO::Socket::Socks 0.5 to IO::Socket::Socks 0.51 because of the bug in 0.5 (ENOTCONN on BSD)
 

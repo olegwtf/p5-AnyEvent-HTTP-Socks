@@ -9,14 +9,14 @@ use Carp;
 use base 'Exporter';
 require AnyEvent::HTTP;
 
+our $VERSION = '0.05';
+
 our @EXPORT = qw(
 	http_get
 	http_head
 	http_post
 	http_request
 );
-
-our $VERSION = '0.04';
 
 use constant {
 	READ_WATCHER  => 1,
